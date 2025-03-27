@@ -1,0 +1,12 @@
+---
+title: "ds2_hw3_2025"
+author: "Joe LaRocca"
+date: "2025-03-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
