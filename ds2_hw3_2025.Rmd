@@ -1,12 +1,198 @@
 ---
-title: "ds2_hw3_2025"
+title: "P8106 - Homework 3"
 author: "Joe LaRocca"
-date: "2025-03-27"
-output: html_document
+date: "April 1, 2025"
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, echo = TRUE)
 library(tidyverse)
+library(caret)
+library(caTools)
+library(glmnet)
+library(glmnet)
+library(tidymodels)
+library(mlbench)
+library(pROC)
+library(pdp)
+library(vip)
+library(AppliedPredictiveModeling)
+library(MASS)
 ```
+
+## Upload and Partition Data
+
+```{r}
+
+set.seed(2025)
+
+auto = read_csv("./auto.csv") |>
+  mutate(mpg_cat = factor(mpg_cat))
+split = sample.split(auto$cylinders, SplitRatio = 0.7)
+auto_train = subset(auto, split == TRUE)
+auto_test = subset(auto, split == FALSE)
+
+
+```
+
+## Part (a)
+
+### Build the Logistic Regression Model
+
+```{r}
+
+auto_logr = glm(mpg_cat ~ ., family = binomial(link = "logit"), data = auto_train)
+summary(auto_logr)
+
+```
+
+### Evaluate Model Performance
+
+```{r}
+
+# predict probabilities for test data
+
+auto_logr_prob <- predict(auto_logr, newdata = auto_test, type = "response")
+
+# convert probabilities to binary predictions using a 0.5 cutoff
+
+auto_logr_pred = rep("high", length(auto_logr_prob))
+auto_logr_pred[auto_logr_prob > 0.5] = "low"
+
+# generate confusion matrix
+
+confusionMatrix(data = as.factor(auto_logr_pred),
+                reference = auto_test$mpg_cat,
+                positive = "high")
+
+```
+
+
+### Create Correlation Matrix to Determine if Predictors are Redundant
+
+```{r}
+
+cor(auto_train[1:7])
+
+```
+
+From the correlation matrix, we can see that cylinders, displacement, horsepower, and weight are all highly positively correlated, which makes sense given that engines with more cylinders are generally more powerful and heavier than engines with fewer cylinders.
+
+## Part (b)
+
+### Build the MARS Model
+
+```{r}
+
+set.seed(2025)
+
+auto_train_mars = auto_train |>
+    mutate(mpg_cat = case_match(
+    mpg_cat,
+    "low" ~ "No",
+    "high" ~ "Yes"
+    )
+  )
+
+ctrl = trainControl(number = 10, 
+                    method = "cv", 
+                    summaryFunction = twoClassSummary,
+                    classProbs = TRUE)
+
+mars_grid = expand.grid(
+  degree = 1:4,
+  nprune = 2:20
+)
+
+auto_mars = train(mpg_cat ~ .,
+                  data = auto_train_mars,
+                  method = "earth",
+                  tuneGrid = mars_grid,
+                  metric = "ROC",
+                  trControl = ctrl
+                  )
+
+plot(auto_mars)
+
+```
+
+### Evaluate Model Performance
+
+```{r}
+
+# predict probabilities for test data
+
+auto_mars_prob <- predict(auto_mars, newdata = auto_test, type = "raw")
+
+auto_mars_pred = case_match(
+  auto_mars_prob,
+  "No" ~ "low",
+  "Yes" ~ "high"
+)
+
+# generate confusion matrix
+
+confusionMatrix(data = as.factor(auto_mars_pred),
+                reference = auto_test$mpg_cat,
+                positive = "high")
+
+```
+
+The MARS model has a higher classification accuracy (89.83\%) compared to the logistic regression model (88.14\%). One key reason could be the correlation between predictors explored in part (a), though the probability threshold (set to 0.5 for the logistic regression model) could also be important.
+
+## Part (c)
+
+### Build LDA Model
+
+```{r}
+
+auto_lda = lda(mpg_cat ~ ., data = auto_train)
+
+```
+
+### Plot Linear Discriminants
+
+```{r}
+
+plot(auto_lda)
+
+```
+
+## Part (d)
+
+It turns out that for different probability thresholds (such as 0.75), the logistic regression model can outperform the MARS model. For that reason, I'm choosing the logistic regression model.
+
+### ROC Curve
+
+```{r}
+
+roc_auto_logr = roc(auto_test$mpg_cat, as.numeric(factor(auto_logr_pred)))
+
+plot(roc_auto_logr, legacy.axes = TRUE, print.auc = TRUE)
+
+```
+
+The area under the curve (AUC) is 0.882.
+
+### Confusion Matrix
+
+```{r}
+
+# make new probability threshold of 0.75
+
+auto_logr_pred_new = rep("high", length(auto_logr_prob))
+auto_logr_pred_new[auto_logr_prob > 0.75] = "low"
+
+# generate confusion matrix
+
+confusionMatrix(data = as.factor(auto_logr_pred_new),
+                reference = auto_test$mpg_cat,
+                positive = "high")
+
+```
+
+The confusion matrix shows that the classification accuracy is about 90.68\% (better than the MARS model from part (b)), with a 95\% confidence interval of (83.93\%, 95.25\%). There are six "false positives" (i.e. model predicted high, reference was low) and five "false negatives" (i.e. model predicted low, reference was high). The sensitivity (true positive rate) of the model was about 91.67\%,, while the specificity (true negative rate) of the model was about 89.66\%, indicating that there were many more true positives than false negatives and true negatives than false positives, respectively.
 
