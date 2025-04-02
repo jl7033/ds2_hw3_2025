@@ -70,7 +70,6 @@ confusionMatrix(data = as.factor(auto_logr_pred),
 
 ```
 
-
 ### Create Correlation Matrix to Determine if Predictors are Redundant
 
 ```{r}
@@ -79,7 +78,30 @@ cor(auto_train[1:7])
 
 ```
 
-From the correlation matrix, we can see that cylinders, displacement, horsepower, and weight are all highly positively correlated, which makes sense given that engines with more cylinders are generally more powerful and heavier than engines with fewer cylinders.
+From the correlation matrix, we can see that cylinders, displacement, horsepower, and weight are all highly positively correlated, which makes sense given that engines with more cylinders are generally more powerful and heavier than engines with fewer cylinders. Therefore, one or more of these predictors are likely redundant.
+
+### Run Regularized Regression to Find Redundant Predictor(s)
+
+```{r}
+
+set.seed(2025)
+
+cv_auto_lasso = cv.glmnet(x = as.matrix(auto_train[, 1:7]), 
+                          y = auto_train$mpg_cat, 
+                          alpha = 1, 
+                          family = "binomial")
+
+auto_lasso = glmnet(x = auto_train[, 1:7], 
+                    y = auto_train$mpg_cat, 
+                    alpha = 1, 
+                    family = "binomial",
+                    lambda = cv_auto_lasso$lambda.min)
+
+coef(auto_lasso)
+
+```
+
+By using L1-regularized regression (LASSO), we can see that both displacement and acceleration were eliminated through selection. Therefore, these predictors are likely redundant.
 
 ## Part (b)
 
@@ -145,21 +167,46 @@ The MARS model has a higher classification accuracy (89.83\%) compared to the lo
 
 ## Part (c)
 
-### Build LDA Model
-
-```{r}
-
-auto_lda = lda(mpg_cat ~ ., data = auto_train)
-
-```
-
 ### Plot Linear Discriminants
 
 ```{r}
 
+auto_lda = lda(mpg_cat ~ ., data = auto_train)
 plot(auto_lda)
 
 ```
+
+### Build LDA Model
+
+```{r}
+
+ctrl_lda <- trainControl(method = "repeatedcv", repeats = 5,
+summaryFunction = twoClassSummary,
+classProbs = TRUE)
+
+# train LDA model with CV
+set.seed(11)
+model_lda <- train(x = auto_train[, 1:7],
+                   y = auto_train$mpg_cat,
+                   method = "lda",
+                   metric = "ROC",
+                   trControl = ctrl_lda)
+
+auto_lda_pred_raw = predict(model_lda, newdata = auto_test, type = "prob")
+
+auto_lda_pred = as.factor(auto_lda_pred_raw[, 1] > 0.5) |> 
+  case_match(
+    "FALSE" ~ "low",
+    "TRUE" ~ "high"
+  )
+
+confusionMatrix(data = as.factor(auto_lda_pred),
+                reference = auto_test$mpg_cat,
+                positive = "high")
+
+```
+
+From the confusion matrix, we see that the prediction accuracy of the LDA model with a probability threshold of 0.5 is about 87.21\%, lower than that of both the logistic regression model with a probability threshold of 0.5 and the MARS model.
 
 ## Part (d)
 
